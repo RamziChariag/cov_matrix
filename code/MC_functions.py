@@ -18,12 +18,17 @@ def generate_cov_matrix(mu, sigma, k, non_zero_prob, seed):
     np.fill_diagonal(zero_probs, 0) # keep the diagonal elements
     lower_triangular[zero_probs > non_zero_prob] = 0
 
-    # Step 3: generate a PD matrix
+    # Step 3: generate matrix
     variance_covariance_matrix = np.dot(lower_triangular, lower_triangular.T)
-    
-    diagonal_vector = np.diagonal(variance_covariance_matrix)
 
-    return diagonal_vector, variance_covariance_matrix
+    # Step 4: ensure diagonal dominance
+    diagonal_vector = np.diagonal(variance_covariance_matrix)
+    row_sums = np.sum(np.abs(variance_covariance_matrix), axis = 1)
+    column_sums = np.sum(np.abs(variance_covariance_matrix), axis = 0)
+    new_diagonal_vector = np.maximum(diagonal_vector, row_sums, column_sums)
+    np.fill_diagonal(variance_covariance_matrix, new_diagonal_vector)
+
+    return new_diagonal_vector, variance_covariance_matrix
 
 def is_positive_semidefinite(matrix):
     eigenvalues, _ = np.linalg.eig(matrix)
@@ -78,3 +83,28 @@ def f_norm_variance(X):
 
     average_scaled_norm = sum_scaled_norms / num_rows
     return average_scaled_norm
+
+def generate_serially_correlated_disturbances(mu_e, sigma_e, n, N1, N2, T, dim_to_correlate, seed):
+    
+    disturbances = np.random.normal(mu_e, sigma_e, n)
+    
+    if dim_to_correlate == "N1":
+        disturbances = disturbances.reshape(N1, N2, T)
+        for t in range(T):
+            for n2 in range(N2):
+                disturbances[:, n2, t] += disturbances[:, n2, t-1] if t > 0 else 0
+        disturbances = disturbances.flatten()
+    elif dim_to_correlate == "N2":
+        disturbances = disturbances.reshape(N1, N2, T)
+        for t in range(T):
+            for n1 in range(N1):
+                disturbances[n1, :, t] += disturbances[n1, :, t-1] if t > 0 else 0
+        disturbances = disturbances.flatten()
+    elif dim_to_correlate == "T":
+        disturbances = disturbances.reshape(N1, N2, T)
+        for n1 in range(N1):
+            for n2 in range(N2):
+                disturbances[n1, n2, :] += disturbances[n1, n2, :-1] if n2 > 0 else 0
+        disturbances = disturbances.flatten()
+    
+    return disturbances
