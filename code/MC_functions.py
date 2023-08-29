@@ -84,8 +84,10 @@ def f_norm_variance(X):
     average_scaled_norm = sum_scaled_norms / num_rows
     return average_scaled_norm
 
-def generate_serially_correlated_disturbances(mu_e, sigma_e, n, N1, N2, T, dim_to_correlate, seed):
+def generate_serially_correlated_disturbances(mu_e, sigma_e, N1, N2, T, dim_to_correlate):
     
+    n = N1 * N2 * T
+
     disturbances = np.random.normal(mu_e, sigma_e, n)
     
     if dim_to_correlate == "N1":
@@ -108,3 +110,14 @@ def generate_serially_correlated_disturbances(mu_e, sigma_e, n, N1, N2, T, dim_t
         disturbances = disturbances.flatten()
     
     return disturbances
+
+def generate_omega(case, mu_e, sigma_e, non_zero_prob, N1, N2, T, seed):
+    n = N1 * N2 * T
+    if case == 1:
+        omega = np.eye(n) * sigma_e 
+    elif case == 2:
+        omega = np.kron(np.eye(N2 * T) , generate_cov_matrix(mu_e, sigma_e, N1, non_zero_prob, seed)[1])
+    elif case == 3:
+        omega = np.kron(np.eye(T) , generate_cov_matrix(mu_e, sigma_e, N1* N2, non_zero_prob, seed)[1])
+
+    return omega 
