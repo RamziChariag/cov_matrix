@@ -3,6 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import concurrent.futures
 import pandas as pd
+from scipy.stats import multivariate_t
 import os
 
 def generate_cov_matrix(mu, sigma, k, non_zero_prob, seed):
@@ -111,6 +112,42 @@ def generate_serially_correlated_disturbances(mu_e, sigma_e, N1, N2, T, dim_to_c
     
     return disturbances
 
+def transform_xy(X,y, number_of_variables):
+    # Convert to a pandas DataFrame
+    column_names = [f"x_{i+1}" for i in range(number_of_variables)]
+    new_column_names_i = [f"x_{i+1}_bar_i" for i in range(number_of_variables)]
+    new_column_names_j = [f"x_{i+1}_bar_j" for i in range(number_of_variables)]
+    new_column_names_t = [f"x_{i+1}_bar_t" for i in range(number_of_variables)]
+    fixed_effect_column_names = ["fe_1", "fe_2", "fe_3"]
+    all_column_names = column_names + fixed_effect_column_names
+    df = pd.DataFrame(data=X, columns=all_column_names)
+    df['y'] = y
+
+    # Generate the x_bar_i columns for each fixed effect
+    for col, new_col_i, new_col_j, new_col_t in zip(column_names, new_column_names_i, new_column_names_j, new_column_names_t):
+        grouped_i = df.groupby('fe_1')[col].transform('mean')
+        df[new_col_i] = grouped_i
+        
+        grouped_j = df.groupby('fe_2')[col].transform('mean')
+        df[new_col_j] = grouped_j
+        
+        grouped_t = df.groupby('fe_3')[col].transform('mean')
+        df[new_col_t] = grouped_t
+
+    # Generate the y_bar columns for each fixed effect
+    for fe_col in fixed_effect_column_names:
+        grouped_y = df.groupby(fe_col)['y'].transform('mean')
+        df[f'y_bar_{fe_col}'] = grouped_y
+
+    df['x_tilde'] = df['x_1'] + 2* df['x_1'].mean() - df['x_1_bar_i'] - df['x_1_bar_j'] - df['x_1_bar_t']
+    df['y_tilde'] = df['y'] + 2* df['y'].mean() - df['y_bar_fe_1'] - df['y_bar_fe_2'] - df['y_bar_fe_3']
+
+    # Convert calculated columns back to arrays
+    x_tilde = df['x_tilde'].values
+    x_tilde = x_tilde.reshape(-1, 1)
+    y_tilde = df['y_tilde'].values
+    return x_tilde, y_tilde
+
 def generate_omega(case, mu_e, sigma_e, non_zero_prob, N1, N2, T, seed):
     n = N1 * N2 * T
     if case == 1:
@@ -121,3 +158,21 @@ def generate_omega(case, mu_e, sigma_e, non_zero_prob, N1, N2, T, seed):
         omega = np.kron(np.eye(T) , generate_cov_matrix(mu_e, sigma_e, N1* N2, non_zero_prob, seed)[1])
 
     return omega 
+
+
+def generate_disturbances(mu_e_vec, omega, n, t_dist_degree, lambda_parameter, mu_U, specification, seed):
+    np.random.seed(seed)
+    if(specification == "normal"):
+        disturbances = np.random.multivariate_normal(mu_e_vec, omega)
+    elif(specification == "t"):
+        multivariate_t_dist = multivariate_t(mu_e_vec, shape=omega, df=t_dist_degree)
+        disturbances = multivariate_t_dist.rvs()
+    elif(specification == "sn"):
+        tau = np.abs(np.random.multivariate_normal(mu_e_vec, np.eye(n))-mu_e_vec)+mu_e_vec # Draw from folded normal distribution at any mean, half normal in case mean = 0 
+        lambda_skew = -(lambda_parameter**2)*np.eye(n) # The larger the lambda, the more skewed the distribution
+        lambda_mat = np.sqrt(np.abs(lambda_skew))
+        sigma_mat = omega - lambda_skew
+        U = np.random.multivariate_normal(np.full(n, mu_U), sigma_mat)
+        disturbances = np.dot(lambda_mat,tau) + U
+
+    return disturbances
