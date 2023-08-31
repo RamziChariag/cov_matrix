@@ -138,6 +138,7 @@ def transform_xy(X,y, number_of_variables):
     for fe_col in fixed_effect_column_names:
         grouped_y = df.groupby(fe_col)['y'].transform('mean')
         df[f'y_bar_{fe_col}'] = grouped_y
+        df = df.reset_index(drop=True)
 
     df['x_tilde'] = df['x_1'] + 2* df['x_1'].mean() - df['x_1_bar_i'] - df['x_1_bar_j'] - df['x_1_bar_t']
     df['y_tilde'] = df['y'] + 2* df['y'].mean() - df['y_bar_fe_1'] - df['y_bar_fe_2'] - df['y_bar_fe_3']
