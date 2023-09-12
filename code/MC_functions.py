@@ -31,6 +31,14 @@ def generate_cov_matrix(mu, sigma, k, non_zero_prob, seed):
 
     return new_diagonal_vector, variance_covariance_matrix
 
+def make_positive_definite(variance_covariance_matrix):
+    diagonal_vector = np.diagonal(variance_covariance_matrix)
+    row_sums = np.sum(np.abs(variance_covariance_matrix), axis = 1)
+    column_sums = np.sum(np.abs(variance_covariance_matrix), axis = 0)
+    new_diagonal_vector = np.maximum(diagonal_vector, row_sums, column_sums)
+    np.fill_diagonal(variance_covariance_matrix, new_diagonal_vector)
+    return variance_covariance_matrix
+
 def is_positive_semidefinite(matrix):
     eigenvalues, _ = np.linalg.eig(matrix)
     return np.all(eigenvalues >= 0)
@@ -177,3 +185,20 @@ def generate_disturbances(mu_e_vec, omega, n, t_dist_degree, lambda_parameter, m
         disturbances = np.dot(lambda_mat,tau) + U
 
     return disturbances
+
+def generate_penalty_matrix(size, ksi_1, ksi_2):
+    # Create an empty matrix filled with zeros
+    matrix = np.zeros((size, size))
+
+    # Fill the upper and lower triangles with values between 0 and 1 using the sigmoid function
+    for i in range(size):
+        for j in range(i+1, size):
+            # Calculate the value based on the distance from the diagonal
+            distance = j - i
+            value = 1 / (1 + np.exp(-(distance-ksi_1)/ksi_2))
+            
+            # Set the symmetric values in the matrix
+            matrix[i][j] = value
+            matrix[j][i] = value
+
+    return matrix
