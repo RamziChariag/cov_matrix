@@ -60,7 +60,7 @@ def generate_multivariate_data(cov_matrix, n, seed):
 
 def scaled_f_norm(matrix):
     # Get the dimension of the matrix
-    k = matrix.shape[0]
+    k = matrix.shape[1]
     norm = np.linalg.norm(matrix, 'fro')/np.sqrt(k)
     return norm
 
