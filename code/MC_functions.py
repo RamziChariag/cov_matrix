@@ -186,7 +186,7 @@ def generate_disturbances(mu_e_vec, omega, n, t_dist_degree, lambda_parameter, m
 
     return disturbances
 
-def generate_penalty_matrix(size, ksi_1, ksi_2):
+def generate_penalty_matrix(max_pen,size, ksi_1, ksi_2):
     # Create an empty matrix filled with zeros
     matrix = np.zeros((size, size))
 
@@ -195,7 +195,7 @@ def generate_penalty_matrix(size, ksi_1, ksi_2):
         for j in range(i+1, size):
             # Calculate the value based on the distance from the diagonal
             distance = j - i
-            value = 1 / (1 + np.exp(-(distance-ksi_1)/ksi_2))
+            value = max_pen / (1 + np.exp(-(distance-ksi_1)/ksi_2))
             
             # Set the symmetric values in the matrix
             matrix[i][j] = value
