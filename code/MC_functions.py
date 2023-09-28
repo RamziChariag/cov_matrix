@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import concurrent.futures
 import pandas as pd
 from scipy.stats import multivariate_t
+from scipy.linalg import eigh
 import os
 
 def generate_cov_matrix(mu, sigma, k, non_zero_prob, seed):
@@ -39,8 +40,12 @@ def make_positive_definite(variance_covariance_matrix):
     np.fill_diagonal(variance_covariance_matrix, new_diagonal_vector)
     return variance_covariance_matrix
 
+def make_positive_definite_2(variance_covariance_matrix, eta):
+    variance_covariance_matrix = variance_covariance_matrix + eta * np.eye(variance_covariance_matrix.shape[0])
+    return variance_covariance_matrix
+
 def is_positive_semidefinite(matrix):
-    eigenvalues, _ = np.linalg.eig(matrix)
+    eigenvalues, _ = eigh(matrix)
     return np.all(eigenvalues >= 0)
 
 def generate_multivariate_data(cov_matrix, n, seed):
@@ -80,13 +85,13 @@ def braket_operator_identity(matrix):
 
     return bracket
 
-def f_norm_variance(X):
+def f_norm_variance(X,S):
     num_rows = X.shape[0]
     sum_scaled_norms = 0.0
 
     for i in range(num_rows):
         x = X[i, :]  # Get the current row x
-        diff_matrix = np.outer(x, x) - X
+        diff_matrix = np.outer(x, x) - S
         scaled_norm = scaled_f_norm(diff_matrix)**2
         sum_scaled_norms += scaled_norm
 
@@ -202,3 +207,22 @@ def generate_penalty_matrix(max_pen,size, ksi_1, ksi_2):
             matrix[j][i] = value
 
     return matrix
+
+def zero_elements_below_tolerance(matrix, tolerance):
+    """
+    Set matrix elements below a specified tolerance to zero.
+
+    Args:
+    matrix (numpy.ndarray): The input matrix.
+    tolerance (float): The tolerance value. Elements smaller than this will be set to zero.
+
+    Returns:
+    numpy.ndarray: The matrix with elements below the tolerance set to zero.
+    """
+    # Create a copy of the input matrix
+    modified_matrix = matrix.copy()
+    
+    # Set elements below the tolerance to zero
+    modified_matrix[np.abs(modified_matrix) < tolerance] = 0.0
+    
+    return modified_matrix
