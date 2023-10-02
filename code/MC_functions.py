@@ -7,6 +7,44 @@ from scipy.stats import multivariate_t
 from scipy.linalg import eigh
 import os
 
+def braket_operator_identity(matrix):
+    # Get the dimension of the matrix
+    k = matrix.shape[0]
+    # Generate identity matrix of proper size
+    identity_matrix = np.eye(k)
+    # Calculate the bracket operator
+    bracket = np.trace(np.dot(matrix.T, identity_matrix))/k
+
+    return bracket
+
+def extract_blocks(matrix, block_size):
+    n = matrix.shape[0]
+    num_blocks = n // block_size
+    blocks = []
+
+    for i in range(num_blocks):
+        row_start = i * block_size
+        row_end = (i + 1) * block_size
+        block = matrix[row_start:row_end, row_start:row_end]
+        blocks.append(block)
+
+    return blocks
+
+
+def f_norm_variance(X,S):
+    num_rows = X.shape[0]
+    sum_scaled_norms = 0.0
+
+    for i in range(num_rows):
+        x = X[i, :]  # Get the current row x
+        diff_matrix = np.outer(x, x) - S
+        scaled_norm = scaled_f_norm(diff_matrix)**2
+        sum_scaled_norms += scaled_norm
+
+    average_scaled_norm = sum_scaled_norms / num_rows
+    return average_scaled_norm
+
+
 def generate_cov_matrix(mu, sigma, k, non_zero_prob, seed):
     # Set the seed for reproducibility
     np.random.seed(seed)
@@ -32,21 +70,24 @@ def generate_cov_matrix(mu, sigma, k, non_zero_prob, seed):
 
     return new_diagonal_vector, variance_covariance_matrix
 
-def make_positive_definite(variance_covariance_matrix):
-    diagonal_vector = np.diagonal(variance_covariance_matrix)
-    row_sums = np.sum(np.abs(variance_covariance_matrix), axis = 1)
-    column_sums = np.sum(np.abs(variance_covariance_matrix), axis = 0)
-    new_diagonal_vector = np.maximum(diagonal_vector, row_sums, column_sums)
-    np.fill_diagonal(variance_covariance_matrix, new_diagonal_vector)
-    return variance_covariance_matrix
 
-def make_positive_definite_2(variance_covariance_matrix, eta):
-    variance_covariance_matrix = variance_covariance_matrix + eta * np.eye(variance_covariance_matrix.shape[0])
-    return variance_covariance_matrix
+def generate_disturbances(mu_e_vec, omega, n, t_dist_degree, lambda_parameter, mu_U, specification, seed):
+    np.random.seed(seed)
+    if(specification == "normal"):
+        disturbances = np.random.multivariate_normal(mu_e_vec, omega)
+    elif(specification == "t"):
+        multivariate_t_dist = multivariate_t(mu_e_vec, shape=omega, df=t_dist_degree)
+        disturbances = multivariate_t_dist.rvs()
+    elif(specification == "sn"):
+        tau = np.abs(np.random.multivariate_normal(mu_e_vec, np.eye(n))-mu_e_vec)+mu_e_vec # Draw from folded normal distribution at any mean, half normal in case mean = 0 
+        lambda_skew = -(lambda_parameter**2)*np.eye(n) # The larger the lambda, the more skewed the distribution
+        lambda_mat = np.sqrt(np.abs(lambda_skew))
+        sigma_mat = omega - lambda_skew
+        U = np.random.multivariate_normal(np.full(n, mu_U), sigma_mat)
+        disturbances = np.dot(lambda_mat,tau) + U
 
-def is_positive_semidefinite(matrix):
-    eigenvalues, _ = eigh(matrix)
-    return np.all(eigenvalues >= 0)
+    return disturbances
+
 
 def generate_multivariate_data(cov_matrix, n, seed):
     # Get the dimension of the covariance matrix (number of variables)
@@ -63,40 +104,37 @@ def generate_multivariate_data(cov_matrix, n, seed):
 
     return data
 
-def scaled_f_norm(matrix):
-    # Get the dimension of the matrix
-    k = matrix.shape[1]
-    norm = np.linalg.norm(matrix, 'fro')/np.sqrt(k)
-    return norm
 
-def sample_covariance_matrix(data):
-    # Calculate the covariance matrix
-    cov_matrix = np.cov(data, rowvar=False)
+def generate_omega(case, mu_e, sigma_e, non_zero_prob, N1, N2, T, seed):
+    n = N1 * N2 * T
+    if case == 1:
+        omega = np.eye(n) * sigma_e 
+    elif case == 2:
+        omega = np.kron(np.eye(N2 * T) , generate_cov_matrix(mu_e, sigma_e, N1, non_zero_prob, seed)[1])
+    elif case == 3:
+        omega = np.kron(np.eye(T) , generate_cov_matrix(mu_e, sigma_e, N1* N2, non_zero_prob, seed)[1])
 
-    return cov_matrix
+    return omega 
 
-def braket_operator_identity(matrix):
-    # Get the dimension of the matrix
-    k = matrix.shape[0]
-    # Generate identity matrix of proper size
-    identity_matrix = np.eye(k)
-    # Calculate the bracket operator
-    bracket = np.trace(np.dot(matrix.T, identity_matrix))/k
 
-    return bracket
 
-def f_norm_variance(X,S):
-    num_rows = X.shape[0]
-    sum_scaled_norms = 0.0
+def generate_penalty_matrix(max_pen,size, ksi_1, ksi_2):
+    # Create an empty matrix filled with zeros
+    matrix = np.zeros((size, size))
 
-    for i in range(num_rows):
-        x = X[i, :]  # Get the current row x
-        diff_matrix = np.outer(x, x) - S
-        scaled_norm = scaled_f_norm(diff_matrix)**2
-        sum_scaled_norms += scaled_norm
+    # Fill the upper and lower triangles with values between 0 and 1 using the sigmoid function
+    for i in range(size):
+        for j in range(i+1, size):
+            # Calculate the value based on the distance from the diagonal
+            distance = j - i
+            value = max_pen / (1 + np.exp(-(distance-ksi_1)/ksi_2))
+            
+            # Set the symmetric values in the matrix
+            matrix[i][j] = value
+            matrix[j][i] = value
 
-    average_scaled_norm = sum_scaled_norms / num_rows
-    return average_scaled_norm
+    return matrix
+
 
 def generate_serially_correlated_disturbances(mu_e, sigma_e, N1, N2, T, dim_to_correlate):
     
@@ -124,6 +162,40 @@ def generate_serially_correlated_disturbances(mu_e, sigma_e, N1, N2, T, dim_to_c
         disturbances = disturbances.flatten()
     
     return disturbances
+
+
+def is_positive_semidefinite(matrix):
+    eigenvalues, _ = eigh(matrix)
+    return np.all(eigenvalues >= 0)
+
+
+def make_positive_definite(variance_covariance_matrix):
+    diagonal_vector = np.diagonal(variance_covariance_matrix)
+    row_sums = np.sum(np.abs(variance_covariance_matrix), axis = 1)
+    column_sums = np.sum(np.abs(variance_covariance_matrix), axis = 0)
+    new_diagonal_vector = np.maximum(diagonal_vector, row_sums, column_sums)
+    np.fill_diagonal(variance_covariance_matrix, new_diagonal_vector)
+    return variance_covariance_matrix
+
+
+def make_positive_definite_2(variance_covariance_matrix, eta):
+    variance_covariance_matrix = variance_covariance_matrix + eta * np.eye(variance_covariance_matrix.shape[0])
+    return variance_covariance_matrix
+
+
+def sample_covariance_matrix(data):
+    # Calculate the covariance matrix
+    cov_matrix = np.cov(data, rowvar=False)
+
+    return cov_matrix
+
+
+def scaled_f_norm(matrix):
+    # Get the dimension of the matrix
+    k = matrix.shape[1]
+    norm = np.linalg.norm(matrix, 'fro')/np.sqrt(k)
+    return norm
+
 
 def transform_xy(X,y, number_of_variables):
     # Convert to a pandas DataFrame
@@ -162,52 +234,6 @@ def transform_xy(X,y, number_of_variables):
     y_tilde = df['y_tilde'].values
     return x_tilde, y_tilde
 
-def generate_omega(case, mu_e, sigma_e, non_zero_prob, N1, N2, T, seed):
-    n = N1 * N2 * T
-    if case == 1:
-        omega = np.eye(n) * sigma_e 
-    elif case == 2:
-        omega = np.kron(np.eye(N2 * T) , generate_cov_matrix(mu_e, sigma_e, N1, non_zero_prob, seed)[1])
-    elif case == 3:
-        omega = np.kron(np.eye(T) , generate_cov_matrix(mu_e, sigma_e, N1* N2, non_zero_prob, seed)[1])
-
-    return omega 
-
-
-def generate_disturbances(mu_e_vec, omega, n, t_dist_degree, lambda_parameter, mu_U, specification, seed):
-    np.random.seed(seed)
-    if(specification == "normal"):
-        disturbances = np.random.multivariate_normal(mu_e_vec, omega)
-    elif(specification == "t"):
-        multivariate_t_dist = multivariate_t(mu_e_vec, shape=omega, df=t_dist_degree)
-        disturbances = multivariate_t_dist.rvs()
-    elif(specification == "sn"):
-        tau = np.abs(np.random.multivariate_normal(mu_e_vec, np.eye(n))-mu_e_vec)+mu_e_vec # Draw from folded normal distribution at any mean, half normal in case mean = 0 
-        lambda_skew = -(lambda_parameter**2)*np.eye(n) # The larger the lambda, the more skewed the distribution
-        lambda_mat = np.sqrt(np.abs(lambda_skew))
-        sigma_mat = omega - lambda_skew
-        U = np.random.multivariate_normal(np.full(n, mu_U), sigma_mat)
-        disturbances = np.dot(lambda_mat,tau) + U
-
-    return disturbances
-
-def generate_penalty_matrix(max_pen,size, ksi_1, ksi_2):
-    # Create an empty matrix filled with zeros
-    matrix = np.zeros((size, size))
-
-    # Fill the upper and lower triangles with values between 0 and 1 using the sigmoid function
-    for i in range(size):
-        for j in range(i+1, size):
-            # Calculate the value based on the distance from the diagonal
-            distance = j - i
-            value = max_pen / (1 + np.exp(-(distance-ksi_1)/ksi_2))
-            
-            # Set the symmetric values in the matrix
-            matrix[i][j] = value
-            matrix[j][i] = value
-
-    return matrix
-
 def zero_elements_below_tolerance(matrix, tolerance):
     """
     Set matrix elements below a specified tolerance to zero.
@@ -219,10 +245,7 @@ def zero_elements_below_tolerance(matrix, tolerance):
     Returns:
     numpy.ndarray: The matrix with elements below the tolerance set to zero.
     """
-    # Create a copy of the input matrix
-    modified_matrix = matrix.copy()
-    
     # Set elements below the tolerance to zero
-    modified_matrix[np.abs(modified_matrix) < tolerance] = 0.0
+    matrix[np.abs(matrix) < tolerance] = 0.0
     
-    return modified_matrix
+    return matrix
